@@ -1,5 +1,6 @@
 # Visualising the Effects of Reasoning on KG Validation
 
+A comprehensive tool for visualizing the impact of reasoning on SHACL validation results.
 
 ## Features
 - Compare Before vs After reasoning graphs
@@ -9,7 +10,7 @@
 - Zoom / pan / drag with a smooth D3 force layout
 
 ## Prerequisites
-- Python 3.12
+- Python 3.9+
 - Recommended: a virtual environment
 
 ## Quick Start
