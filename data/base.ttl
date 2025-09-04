@@ -1,0 +1,50 @@
+@prefix ex: <http://example.org/data#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+ex:Person rdfs:subClassOf ex:LivingThing .
+ex:Animal rdfs:subClassOf ex:LivingThing .
+
+ex:hasPet rdfs:range ex:LivingThing .
+
+ex:dog1 a ex:Animal ;
+    ex:hasName "Buddy" .
+ex:cat1 a ex:Animal ;
+    ex:hasName "Whiskers" .
+
+ex:alice a ex:Person ;
+    ex:hasName "Alice" ;
+    ex:hasID "A1" ;
+    ex:hasEmail "alice@example.com" .
+
+ex:bob a ex:Person ;
+    ex:hasName "Bob" ;
+    ex:hasID "B1" ;
+    ex:hasEmail "bob@example.com" ;
+    ex:hasPet ex:fluffy . # fluffy is not explicitly typed here, will be inferred
+
+ex:charlie a ex:Person ;
+    ex:hasName "Charlie" ;
+    ex:hasID "C1" . # VIOLATION: Missing ex:hasEmail
+
+ex:david a ex:Person ;
+    ex:hasName "David" ;
+    ex:hasID "D1" ;
+    ex:hasEmail "david@example.com" .
+
+ex:personWithDuplicateID a ex:Person ;
+    ex:hasName "DupID User" ;
+    ex:hasID "A1" ; # Duplicate ID with Alice
+    ex:hasEmail "dupid@example.com" .
+
+# Intentional Violation: Malformed Name Datatype
+ex:malformed_name_person a ex:Person ;
+    ex:hasName 123 ; # VIOLATION: Not a string
+    owl:sameAs ex:Toby;
+    ex:hasID "M1" ;
+    ex:hasEmail "malformed@example.com" .
+
+ex:anonymous_thing a ex:LivingThing . # VIOLATION: Missing ex:hasName

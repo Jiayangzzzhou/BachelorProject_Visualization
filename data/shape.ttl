@@ -1,0 +1,36 @@
+@prefix ex: <http://example.org/data#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Shape for LivingThing
+ex:LivingThingShape
+    a sh:NodeShape ;
+    sh:targetClass ex:LivingThing ;
+    sh:property [
+        sh:path ex:hasName ;
+        sh:minCount 1 ;
+        sh:message "All LivingThings must have a name." ;
+    ] .
+
+# Shape for Person
+ex:PersonShape
+    a sh:NodeShape ;
+    sh:targetClass ex:Person ;
+    sh:property [
+        sh:path ex:hasID ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "Each Person must have exactly one ID." ;
+    ] ;
+    sh:property [
+        sh:path ex:hasEmail ;
+        sh:minCount 1 ;
+        sh:message "Each Person must have at least one email address." ;
+    ] ;
+    sh:property [
+        sh:path ex:hasName ;
+        sh:datatype xsd:string ;
+        sh:message "A Person's name must be a string." ;
+    ] .
