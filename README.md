@@ -1,1 +1,2 @@
-# Thesis_Visu
+# Visualising the Effects of Reasoning on KG Validation
+
