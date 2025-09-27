@@ -29,100 +29,6 @@ const colors = {
     inferredLink: '#2196f3'
 };
 
-
-const Telemetry = {
-    enabled: (localStorage.getItem('exp_log_enabled') ?? '1') === '1',
-    console: true,
-    endpoint: '/api/exp_log',
-    flushIntervalMs: 5000,
-    maxBuffer: 200,
-    session: (crypto?.randomUUID?.() ?? (Date.now() + '-' + Math.random().toString(36).slice(2))),
-    seq: 0,
-    buffer: []
-};
-
-function logEvent(type, detail = {}, level = 'INFO') {
-    try {
-        const entry = {
-            ts: new Date().toISOString(),
-            seq: ++Telemetry.seq,
-            lvl: level,
-            type,
-            session: Telemetry.session,
-            graph: typeof currentGraph !== 'undefined' ? currentGraph : undefined,
-            cls: typeof currentClass !== 'undefined' ? currentClass : undefined,
-            collapse: typeof collapseMode !== 'undefined' ? collapseMode : undefined,
-            visNodes: currentData?.nodes?.length ?? 0,
-            visLinks: currentData?.links?.length ?? 0,
-            ...detail
-        };
-        if (Telemetry.console) console.log('[EXP]', entry);
-        if (Telemetry.enabled) {
-            Telemetry.buffer.push(entry);
-            if (Telemetry.buffer.length >= Telemetry.maxBuffer) flushLogs();
-        }
-    } catch (e) {
-        console.warn('logEvent failed', e);
-    }
-}
-
-async function flushLogs() {
-    if (!Telemetry.enabled || Telemetry.buffer.length === 0) return;
-    const payload = {session: Telemetry.session, events: Telemetry.buffer.splice(0)};
-    try {
-        await fetch(Telemetry.endpoint, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-    } catch (e) {
-        // if backend not reachable, keep logs in localStorage
-        const prev = JSON.parse(localStorage.getItem('exp_log_buffer') || '[]');
-        prev.push(...payload.events);
-        localStorage.setItem('exp_log_buffer', JSON.stringify(prev));
-    }
-}
-
-setInterval(flushLogs, Telemetry.flushIntervalMs);
-window.addEventListener('beforeunload', flushLogs);
-
-function downloadLogs() {
-    const all = (Telemetry.buffer.concat(JSON.parse(localStorage.getItem('exp_log_buffer') || '[]')));
-    const blob = new Blob([JSON.stringify({
-        session: Telemetry.session,
-        events: all
-    }, null, 2)], {type: 'application/json'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `exp_log_${Telemetry.session}.json`;
-    a.click();
-}
-
-window.flushLogs = flushLogs;
-window.downloadLogs = downloadLogs;
-window.enableExpLog = (on) => {
-    localStorage.setItem('exp_log_enabled', on ? '1' : '0');
-};
-
-// simple notification system
-function withTiming(name, fn) {
-    const t0 = performance.now();
-    try {
-        return fn();
-    } finally {
-        logEvent('timing', {name, ms: +(performance.now() - t0).toFixed(2)});
-    }
-}
-
-async function withTimingAsync(name, fn) {
-    const t0 = performance.now();
-    try {
-        return await fn();
-    } finally {
-        logEvent('timing', {name, ms: +(performance.now() - t0).toFixed(2)});
-    }
-}
-
 function basicStats(nums) {
     if (!nums || nums.length === 0) return {n: 0};
     let s = 0, mn = Infinity, mx = -Infinity;
@@ -134,46 +40,14 @@ function basicStats(nums) {
     return {n: nums.length, min: mn, max: mx, mean: +(s / nums.length).toFixed(2)};
 }
 
-
-function getMemoryStats() {
-    const m = (performance && performance.memory) ? performance.memory : null;
-    return m ? {
-        usedMB: +(m.usedJSHeapSize / 1048576).toFixed(1),
-        totalMB: +(m.totalJSHeapSize / 1048576).toFixed(1),
-        limitMB: +(m.jsHeapSizeLimit / 1048576).toFixed(0)
-    } : null;
-}
-
-function logClassLoadConsole({className, nodes, links, tFetch, tFilter, tRender, tTotal}) {
-    const mem = getMemoryStats();
-    console.groupCollapsed(`📊 Class "${className}" loaded`);
-    console.log(`Nodes: ${nodes} | Links: ${links}`);
-    console.table({
-        fetch_ms: +tFetch.toFixed(1),
-        filter_ms: +tFilter.toFixed(1),
-        render_ms: +tRender.toFixed(1),
-        total_ms: +tTotal.toFixed(1)
-    });
-    if (mem) {
-        console.log(`Memory used: ${mem.usedMB} MB  (heap total ~${mem.totalMB} MB, limit ~${mem.limitMB} MB)`);
-    } else {
-        console.log('Memory: N/A (performance.memory unavailable; Chrome可在 chrome://flags 打开 precise memory)');
-    }
-    console.groupEnd();
-}
-
-
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function () {
-    logEvent('dom_ready');
     loadData();
 });
 
 // Load all necessary data
 async function loadData() {
     try {
-        logEvent('load_data_start');
-
         // Load before and after graph data
         const [beforeResponse, afterResponse, classResponse, validityResponse] = await Promise.all([
             fetch('/api/before_graph'),
@@ -186,6 +60,8 @@ async function loadData() {
         afterData = await afterResponse.json();
 
         function fixLinkSourceTarget(data) {
+            data.links = data.links.filter(l => l.subject !== l.object);
+
             data.links = data.links.map(link => ({
                 ...link,
                 source: link.subject,
@@ -209,13 +85,7 @@ async function loadData() {
         // Set initial state
         currentData = beforeData;
 
-        logEvent('load_data_done', {
-            classes: classIndex?.length ?? 0,
-            before: {nodes: beforeData?.nodes?.length ?? 0, links: beforeData?.links?.length ?? 0},
-            after: {nodes: afterData?.nodes?.length ?? 0, links: afterData?.links?.length ?? 0}
-        });
     } catch (error) {
-        logEvent('load_data_error', {msg: String(error)}, 'ERROR');
         showError('Failed to load data. Please check your Flask server.');
     }
 }
@@ -264,7 +134,7 @@ async function selectClass(className) {
         } else {
             updateVisualization();
         }
-        // we wait for the next animation frame to ensure rendering is done
+
         await new Promise(requestAnimationFrame);
         tRender = performance.now() - tRender0;
 
@@ -381,13 +251,6 @@ function initializeSubnodeManagement() {
 
     // Update currentData based on visible nodes
     updateCurrentDataFromVisible();
-
-    logEvent('subnode_init', {
-        totalNodes: fullData?.nodes?.length ?? 0,
-        collapseMode,
-        visible: visibleNodes.size,
-        hiddenCounts: hiddenNodeCounts.size
-    });
 }
 
 // Update currentData to show only visible nodes and their connections
@@ -411,11 +274,6 @@ function updateCurrentDataFromVisible() {
         }));
 
     currentData = {nodes: visibleNodesArray, links: visibleLinks};
-
-    logEvent('visible_update', {
-        visibleNodes: visibleNodes.size,
-        visibleLinks: currentData.links.length
-    });
 }
 
 
@@ -435,6 +293,7 @@ function recalculateHiddenNodeCounts() {
     });
 }
 
+// Handle node click for collapse/expand
 function handleNodeClick(event, clickedNode) {
     if (event && event.defaultPrevented) return;
     if (event) event.stopPropagation();
@@ -480,7 +339,7 @@ function handleNodeClick(event, clickedNode) {
             for (const gId of grand) {
                 if (!visibleNodes.has(gId)) continue;
 
-                // gId whether can be hidden depends on all its parents
+                // gId wheather can be hidden depends on all its parents
                 const parents = nodeParents.get(gId) || new Set();
                 let hasOtherVisibleParent = false;
                 for (const p of parents) {
@@ -500,12 +359,7 @@ function handleNodeClick(event, clickedNode) {
             visibleNodes.delete(id);
             expandedNodes.delete(id);
         }
-
         showNotification(`Collapsed: ${clickedNode.label || nodeId}`);
-        logEvent('collapse', {
-            nodeId,
-            hiddenNow: [...hiddenNodeCounts.entries()].find(([id]) => id === nodeId)?.[1] || 0
-        });
 
     } else {
         const toShow = new Set();
@@ -526,10 +380,6 @@ function handleNodeClick(event, clickedNode) {
         expandedNodes.add(nodeId);
 
         showNotification(`Expanded: ${clickedNode.label || nodeId}`);
-        logEvent('expand', {
-            nodeId,
-            addedVisible: Array.from(visibleNodes).length  // 简易统计
-        });
     }
 
     updateCurrentDataFromVisible();
@@ -601,10 +451,8 @@ function recommendClass() {
                 document.getElementById('classDropdown').value = bestClass;
                 selectClass(bestClass);
                 showNotification(`Recommended class: ${bestClass} (score: ${bestScore.toFixed(2)})`);
-                logEvent('recommend', {bestClass, score: +bestScore.toFixed(3)});
             } else {
                 showNotification('No suitable class found.');
-                logEvent('recommend_none');
             }
         })
         .catch(err => {
@@ -629,7 +477,6 @@ function filterDataForClass(originalData, classData) {
     });
 
     // find all links involving any of the class nodes, or any nodes linked to class nodes
-    // And collect any *new* nodes (not in classNodeIds) that are part of these links
     originalData.links.forEach(link => {
         const sourceIsClassNode = classNodeIds.has(link.subject);
         const targetIsClassNode = classNodeIds.has(link.object);
@@ -641,7 +488,7 @@ function filterDataForClass(originalData, classData) {
                 target: link.object
             });
 
-            // Add the subject node if it's not already included (and is a real node, not a literal)
+            // Add the subject node if not already included
             if (!includedNodeIds.has(link.subject)) {
                 const subjectNode = originalData.nodes.find(n => n.id === link.subject);
                 if (subjectNode) {
@@ -649,7 +496,7 @@ function filterDataForClass(originalData, classData) {
                     includedNodeIds.add(link.subject);
                 }
             }
-            // Add the object node if it's not already included (and is a real node, not a literal)
+            // Add the object node if not already included
             if (!includedNodeIds.has(link.object)) {
                 const objectNode = originalData.nodes.find(n => n.id === link.object);
                 if (objectNode) {
@@ -692,6 +539,21 @@ function initializeVisualization() {
         .attr('width', '100%')
         .attr('height', '100%');
 
+    // define arrowhead marker
+    svg.append("defs").append("marker")
+        .attr("id", "arrowhead")
+        .attr("viewBox", "-0 -5 10 10")
+        .attr("refX", 20)
+        .attr("refY", 0)
+        .attr("orient", "auto")
+        .attr("markerWidth", 5)
+        .attr("markerHeight", 5)
+        .attr("xoverflow", "visible")
+        .append("svg:path")
+        .attr("d", "M 0,-5 L 10,0 L 0,5")
+        .attr("fill", "#aaa9a9")
+        .style("stroke", "none");
+
     const root = svg.append('g').attr('class', 'graph-content');
     root.append('g').attr('class', 'links');
     root.append('g').attr('class', 'edge-labels');
@@ -708,8 +570,6 @@ function initializeVisualization() {
             const k = event.transform.k;
             root.select('.edge-labels').attr('display', k > EDGE_LABEL_MIN_K ? null : 'none');
             root.selectAll('.nodes text').attr('display', k > NODE_LABEL_MIN_K ? null : 'none');
-
-            logEvent('zoom', {k: +k.toFixed(3)});
         });
 
     svg.call(zoomBehavior);
@@ -753,11 +613,6 @@ function updateVisualization() {
     });
 
     const degrees = Array.from(deg.values());
-    logEvent('viz_update', {
-        nodes: currentData.nodes.length,
-        links: currentData.links.length,
-        deg: basicStats(degrees)
-    });
 
     const hasChildrenMap = new Map();
     currentData.nodes.forEach(n => {
@@ -782,8 +637,9 @@ function updateVisualization() {
         .attr('class', 'link')
         .style('opacity', 0)
         .style('stroke', d => getLinkColor(d))
-        .style('stroke-width', d => d.inferred ? 3 : 2)
-        .style('stroke-dasharray', d => d.inferred ? '5,5' : 'none');
+        .style('stroke-width', d => d.inferred ? 2 : 2)
+        .style('stroke-dasharray', d => d.inferred ? '5,5' : 'none')
+        .attr('marker-end', 'url(#arrowhead)');
 
     linkSel = linkEnter.merge(linkSel)
         .transition().duration(200)
@@ -1016,19 +872,12 @@ function getPredicateLabel(predicate) {
     return parts[parts.length - 1];
 }
 
-function findNodeInData(nodeId) {
-    const allData = currentGraph === 'before' ? beforeData : afterData;
-    return allData.nodes.find(n => n.id === nodeId);
-}
-
 // Switch between before/after graphs
 function switchGraph() {
     if (!currentClass) {
         showError("Please select a class first.");
         return;
     }
-    logEvent('switch_graph', {to: currentGraph === 'before' ? 'after' : 'before'});
-
     currentGraph = currentGraph === 'before' ? 'after' : 'before';
 
     const switchText = document.getElementById('switch-text');
@@ -1041,7 +890,6 @@ function switchGraph() {
 
 function toggleCollapseMode() {
     collapseMode = !collapseMode;
-    logEvent('toggle_collapse', {collapseMode});
 
     if (!currentClass) {
         showError("Please select a class first.");
@@ -1098,8 +946,6 @@ function dragended(event, d) {
 
 // Utility functions
 function showNotification(message) {
-    logEvent('notify', {message});
-
     const notification = document.createElement('div');
     notification.style.cssText = `
         position: fixed;
@@ -1121,8 +967,6 @@ function showNotification(message) {
 }
 
 function showError(message) {
-    logEvent('error', {message}, 'ERROR');
-
     const notification = document.createElement('div');
     notification.style.cssText = `
         position: fixed;
@@ -1146,7 +990,6 @@ function showError(message) {
 function toggleValidationReport() {
     const panel = document.getElementById('validation-report');
     const opening = panel.style.display === 'none';
-    logEvent('report_toggle', {open: opening});
     if (panel.style.display === 'none') {
         updateValidationReport();
         panel.style.display = 'block';
@@ -1213,10 +1056,4 @@ function updateValidationReport() {
         }
     });
 
-    logEvent('report_stats', {
-        class: currentClass,
-        mode: currentGraph,
-        nodes: {total: totalNodes, invalid: invalidNodeCount, inferred: inferredNodeCount},
-        links: {total: allLinks.length, invalid: invalidLinkCount, inferred: inferredLinkCount}
-    });
 }
